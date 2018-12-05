@@ -93,29 +93,34 @@ static bool insert_to_each_succ_instr(ppir_block *block, ppir_node *node)
 
    ppir_node_foreach_succ_safe(node, dep) {
       ppir_node *succ = dep->succ;
-      assert(succ->type == ppir_node_type_alu);
 
-      if (!ppir_instr_insert_node(succ->instr, node)) {
-         /* create a move node to insert for failed node */
-         if (!move) {
-            move = ppir_node_create(block, ppir_op_mov, -1, 0);
-            if (unlikely(!move))
-               return false;
+      if (node->op != ppir_op_const || succ->op != ppir_op_load_coords) {
+         assert(succ->type == ppir_node_type_alu);
 
-            ppir_debug("node_to_instr create move %d for %d\n",
-                       move->index, node->index);
-
-            ppir_alu_node *alu = ppir_node_to_alu(move);
-            alu->dest = *dest;
-            alu->num_src = 1;
-            ppir_node_target_assign(alu->src, dest);
-            for (int i = 0; i < 4; i++)
-               alu->src->swizzle[i] = i;
-         }
-
-         ppir_node_replace_pred(dep, move);
-         ppir_node_replace_child(succ, node, move);
+         if (ppir_instr_insert_node(succ->instr, node))
+            continue;
       }
+
+      /* create a move node to insert for const+load_coords or
+       * insert failed case */
+      if (!move) {
+         move = ppir_node_create(block, ppir_op_mov, -1, 0);
+         if (unlikely(!move))
+            return false;
+
+         ppir_debug("node_to_instr create move %d for %d\n",
+                    move->index, node->index);
+
+         ppir_alu_node *alu = ppir_node_to_alu(move);
+         alu->dest = *dest;
+         alu->num_src = 1;
+         ppir_node_target_assign(alu->src, dest);
+         for (int i = 0; i < 4; i++)
+            alu->src->swizzle[i] = i;
+      }
+
+      ppir_node_replace_pred(dep, move);
+      ppir_node_replace_child(succ, node, move);
    }
 
    if (move) {
