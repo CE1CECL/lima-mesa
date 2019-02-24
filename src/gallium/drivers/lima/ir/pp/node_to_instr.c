@@ -260,6 +260,12 @@ static bool ppir_do_node_to_instr(ppir_block *block, ppir_node *node)
        *   2. store a load node
        *   3. store a reg assigned in another block like loop/if
        */
+      if (node->op == ppir_op_store_temp) {
+         if (!create_new_instr(block, node))
+            return false;
+         break;
+      }
+
       ppir_node *move = ppir_node_create(block, ppir_op_mov, -1, 0);
       if (unlikely(!move))
          return false;

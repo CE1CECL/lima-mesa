@@ -241,6 +241,7 @@ typedef struct {
 typedef struct {
    ppir_node node;
    int index;
+   int num_components;
    ppir_src src;
 } ppir_store_node;
 

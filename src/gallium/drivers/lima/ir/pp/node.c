@@ -259,6 +259,13 @@ const ppir_op_info ppir_op_infos[] = {
       .name = "st_col",
       .type = ppir_node_type_store,
    },
+   [ppir_op_store_temp] = {
+      .name = "st_temp",
+      .type = ppir_node_type_store,
+      .slots = (int []) {
+         PPIR_INSTR_SLOT_STORE_TEMP, PPIR_INSTR_SLOT_END
+      },
+   },
 };
 
 void *ppir_node_create(ppir_block *block, ppir_op op, int index, unsigned mask)

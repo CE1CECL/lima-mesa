@@ -463,7 +463,20 @@ static void ppir_codegen_encode_combine(ppir_node *node, void *code)
 
 static void ppir_codegen_encode_store_temp(ppir_node *node, void *code)
 {
-   
+   assert(node->op == ppir_op_store_temp);
+
+   ppir_codegen_field_temp_write *f = code;
+   ppir_store_node *snode = ppir_node_to_store(node);
+   int num_components = snode->num_components;
+
+   f->temp_write.dest = 0x03; // 11 - temporary
+   f->temp_write.source = snode->src.reg->index;
+
+   int alignment = num_components == 4 ? 2 : num_components - 1;
+   f->temp_write.alignment = alignment;
+   f->temp_write.index = snode->index << (2 - alignment);
+
+   f->temp_write.offset_reg = snode->index >> 2;
 }
 
 static void ppir_codegen_encode_const(ppir_const *constant, uint16_t *code)
