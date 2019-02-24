@@ -102,15 +102,24 @@ static void ppir_codegen_encode_uniform(ppir_node *node, void *code)
    ppir_codegen_field_uniform *f = code;
    ppir_load_node *load = ppir_node_to_load(node);
 
-   if (node->op == ppir_op_load_uniform) {
-      int num_components = load->num_components;
-      int alignment = num_components == 4 ? 2 : num_components - 1;
-
-      f->alignment = alignment;
-
-      /* TODO: uniform can be also combined like varying */
-      f->index = load->index << (2 - alignment);
+   switch (node->op) {
+      case ppir_op_load_uniform:
+         f->source = ppir_codegen_uniform_src_uniform;
+         break;
+      case ppir_op_load_temp:
+         f->source = ppir_codegen_uniform_src_temporary;
+         break;
+      default:
+         assert(0);
    }
+
+   int num_components = load->num_components;
+   int alignment = num_components == 4 ? 2 : num_components - 1;
+
+   f->alignment = alignment;
+
+   /* TODO: uniform can be also combined like varying */
+   f->index = load->index << (2 - alignment);
 }
 
 static unsigned shift_to_op(int shift)

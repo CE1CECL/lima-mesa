@@ -102,6 +102,7 @@ typedef enum {
    ppir_op_load_varying,
    ppir_op_load_coords,
    ppir_op_load_texture,
+   ppir_op_load_temp,
 
    ppir_op_store_temp,
    ppir_op_store_color,

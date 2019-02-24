@@ -208,7 +208,7 @@ bool ppir_instr_insert_node(ppir_instr *instr, ppir_node *node)
          node->instr = instr;
          node->instr_pos = pos;
 
-         if (node->op == ppir_op_load_uniform) {
+         if ((node->op == ppir_op_load_uniform) || (node->op == ppir_op_load_temp)) {
             ppir_load_node *l = ppir_node_to_load(node);
             ppir_instr_update_src_pipeline(
                instr, ppir_pipeline_reg_uniform, &l->dest, NULL);

@@ -251,6 +251,13 @@ const ppir_op_info ppir_op_infos[] = {
          PPIR_INSTR_SLOT_TEXLD, PPIR_INSTR_SLOT_END
       },
    },
+   [ppir_op_load_temp] = {
+      .name = "ld_temp",
+      .type = ppir_node_type_load,
+      .slots = (int []) {
+         PPIR_INSTR_SLOT_UNIFORM, PPIR_INSTR_SLOT_END
+      },
+   },
    [ppir_op_const] = {
       .name = "const",
       .type = ppir_node_type_const,

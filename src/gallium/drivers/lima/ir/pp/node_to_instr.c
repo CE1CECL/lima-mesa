@@ -168,7 +168,7 @@ static bool insert_to_each_succ_instr(ppir_block *block, ppir_node *node)
       dup->instr_pos = node->instr_pos;
       ppir_node_replace_pred(dep, dup);
 
-      if (node->op == ppir_op_load_uniform) {
+      if ((node->op == ppir_op_load_uniform) || (node->op == ppir_op_load_temp)) {
          ppir_load_node *load = ppir_node_to_load(node);
          ppir_load_node *dup_load = ppir_node_to_load(dup);
          dup_load->dest = load->dest;
@@ -218,8 +218,18 @@ static bool ppir_do_node_to_instr(ppir_block *block, ppir_node *node)
       break;
    }
    case ppir_node_type_load:
-      if (node->op == ppir_op_load_uniform) {
+      if ((node->op == ppir_op_load_uniform) || (node->op == ppir_op_load_temp)) {
          /* merge pred load_uniform into succ instr can save a reg
+          * by using pipeline reg */
+         if (!insert_to_each_succ_instr(block, node))
+            return false;
+
+         ppir_load_node *load = ppir_node_to_load(node);
+         load->dest.type = ppir_target_pipeline;
+         load->dest.pipeline = ppir_pipeline_reg_uniform;
+      }
+      else if (node->op == ppir_op_load_temp) {
+         /* merge pred load_temp into succ instr can save a reg
           * by using pipeline reg */
          if (!insert_to_each_succ_instr(block, node))
             return false;
@@ -240,6 +250,7 @@ static bool ppir_do_node_to_instr(ppir_block *block, ppir_node *node)
       }
       else {
          /* not supported yet */
+         assert(0);
          return false;
       }
       break;
@@ -253,6 +264,12 @@ static bool ppir_do_node_to_instr(ppir_block *block, ppir_node *node)
       break;
    case ppir_node_type_store:
    {
+      if (node->op == ppir_op_store_temp) {
+         if (!create_new_instr(block, node))
+            return false;
+         break;
+      }
+
       /* Only the store color node should appear here.
        * Currently we always insert a move node as the end instr.
        * But it should only be done when:
@@ -260,11 +277,8 @@ static bool ppir_do_node_to_instr(ppir_block *block, ppir_node *node)
        *   2. store a load node
        *   3. store a reg assigned in another block like loop/if
        */
-      if (node->op == ppir_op_store_temp) {
-         if (!create_new_instr(block, node))
-            return false;
-         break;
-      }
+
+      assert(node->op == ppir_op_store_color);
 
       ppir_node *move = ppir_node_create(block, ppir_op_mov, -1, 0);
       if (unlikely(!move))
