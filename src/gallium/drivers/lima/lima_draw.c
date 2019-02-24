@@ -1442,6 +1442,14 @@ lima_pack_pp_frame_reg(struct lima_context *ctx, uint32_t *frame_reg,
    frame->clear_value_color_3 = ctx->clear.color_8pc;
    frame->one = 1;
 
+   /* frame->fragment_stack_address is overwritten per-pp in the kernel
+    * by the values of pp_frame.fragment_stack_address[i] */
+
+   /* These are "stack size" and "stack offset" shifted,
+    * here they are assumed to be always the same. */
+   uint32_t fs_stack_size = ctx->fs ? ctx->fs->stack_size : 0;
+   frame->fragment_stack_size = fs_stack_size << 16 | fs_stack_size;
+
    /* related with MSAA and different value when r4p0/r7p0 */
    frame->supersampled_height = ctx->framebuffer.height * 2 - 1;
    frame->scale = 0xE0C;
@@ -1540,8 +1548,11 @@ _lima_flush(struct lima_context *ctx, bool end_of_frame)
       lima_pack_pp_frame_reg(ctx, pp_frame.frame, pp_frame.wb);
       pp_frame.num_pp = screen->num_pp;
 
-      for (int i = 0; i < screen->num_pp; i++)
+      for (int i = 0; i < screen->num_pp; i++) {
          pp_frame.plbu_array_address[i] = ps->bo->va + ps->bo_offset + ps->offset[i];
+         pp_frame.fragment_stack_address[i] = screen->pp_buffer->va +
+            pp_stack_offset + pp_stack_pp_size * i;
+      }
 
       lima_dump_command_stream_print(
          &pp_frame, sizeof(pp_frame), false, "add pp frame\n");
@@ -1553,6 +1564,10 @@ _lima_flush(struct lima_context *ctx, bool end_of_frame)
       struct drm_lima_m450_pp_frame pp_frame = {0};
       lima_pack_pp_frame_reg(ctx, pp_frame.frame, pp_frame.wb);
       pp_frame.num_pp = screen->num_pp;
+
+      for (int i = 0; i < screen->num_pp; i++)
+         pp_frame.fragment_stack_address[i] = screen->pp_buffer->va +
+            pp_stack_offset + pp_stack_pp_size * i;
 
       if (ps->bo) {
          for (int i = 0; i < screen->num_pp; i++)

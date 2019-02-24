@@ -26,7 +26,7 @@
 #include "util/register_allocate.h"
 
 #include "ppir.h"
-
+#include "lima_context.h"
 
 #define PPIR_FULL_REG_NUM  6
 
@@ -307,6 +307,7 @@ static void ppir_regalloc_print_result(ppir_compiler *comp)
 bool ppir_regalloc_prog(ppir_compiler *comp)
 {
    ppir_reg *end_reg = ppir_regalloc_build_liveness_info(comp);
+   comp->prog->stack_size = 0; /* will be filled by spilling code */
 
    struct ra_graph *g = ra_alloc_interference_graph(
       comp->ra, list_length(&comp->reg_list));
