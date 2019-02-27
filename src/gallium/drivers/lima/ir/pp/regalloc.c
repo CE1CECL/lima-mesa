@@ -145,6 +145,31 @@ static ppir_reg *get_src_reg(ppir_src *src)
    }
 }
 
+static void ppir_regalloc_update_reglist_ssa(ppir_compiler *comp)
+{
+   list_for_each_entry(ppir_block, block, &comp->block_list, list) {
+      list_for_each_entry(ppir_node, node, &block->node_list, list) {
+         if (node->op == ppir_op_store_color) {
+            ppir_store_node *store = ppir_node_to_store(node);
+            continue;
+         }
+
+         if (!node->instr || node->op == ppir_op_const)
+            continue;
+
+         ppir_dest *dest = ppir_node_get_dest(node);
+         if (dest) {
+            ppir_reg *reg = NULL;
+
+            if (dest->type == ppir_target_ssa) {
+               reg = &dest->ssa;
+               list_addtail(&reg->list, &comp->reg_list);
+            }
+         }
+      }
+   }
+}
+
 static ppir_reg *ppir_regalloc_build_liveness_info(ppir_compiler *comp)
 {
    ppir_reg *ret = NULL;
@@ -171,7 +196,6 @@ static ppir_reg *ppir_regalloc_build_liveness_info(ppir_compiler *comp)
 
             if (dest->type == ppir_target_ssa) {
                reg = &dest->ssa;
-               list_addtail(&reg->list, &comp->reg_list);
             }
             else if (dest->type == ppir_target_register)
                reg = dest->reg;
@@ -304,10 +328,331 @@ static void ppir_regalloc_print_result(ppir_compiler *comp)
    printf("--------------------------\n");
 }
 
-bool ppir_regalloc_prog(ppir_compiler *comp)
+static bool create_new_instr_after(ppir_block *block, ppir_instr *ref,
+                                   ppir_node *node)
 {
-   ppir_reg *end_reg = ppir_regalloc_build_liveness_info(comp);
-   comp->prog->stack_size = 0; /* will be filled by spilling code */
+   ppir_instr *newinstr = ppir_instr_create(block);
+   if (unlikely(!newinstr))
+      return false;
+
+   list_del(&newinstr->list);
+   list_add(&newinstr->list, &ref->list);
+
+   if (!ppir_instr_insert_node(newinstr, node))
+      return false;
+
+   list_for_each_entry_from(ppir_instr, instr, ref, &block->instr_list, list) {
+      instr->seq++;
+   }
+   newinstr->seq = ref->seq+1;
+   newinstr->scheduled = true;
+}
+
+static bool create_new_instr_before(ppir_block *block, ppir_instr *ref,
+                                    ppir_node *node)
+{
+   ppir_instr *newinstr = ppir_instr_create(block);
+   if (unlikely(!newinstr))
+      return false;
+
+   list_del(&newinstr->list);
+   list_addtail(&newinstr->list, &ref->list);
+
+   if (!ppir_instr_insert_node(newinstr, node))
+      return false;
+
+   list_for_each_entry_from(ppir_instr, instr, ref, &block->instr_list, list) {
+      instr->seq++;
+   }
+   newinstr->seq = ref->seq-1;
+   newinstr->scheduled = true;
+}
+
+static ppir_alu_node* ppir_update_spilled_src(ppir_compiler *comp,
+                                              ppir_block *block,
+                                              ppir_node *node, ppir_src *src,
+                                              ppir_alu_node *move_alu)
+{
+   /* alu nodes may have multiple references to the same value.
+    * try to avoid unnecessary loads for the same alu node by
+    * saving the node resulting from the temporary load */
+   if (move_alu)
+      goto update_src;
+
+   /* alloc new node to load value */
+   ppir_node *load_node = ppir_node_create(block, ppir_op_load_temp, -1, 0);
+   if (!load_node)
+      return NULL;
+   list_addtail(&load_node->list, &node->list);
+
+   ppir_load_node *load = ppir_node_to_load(load_node);
+
+   load->index = -comp->prog->stack_size; /* index sizes are negative */
+   load->num_components = src->reg->num_components;
+
+   ppir_dest *ld_dest = &load->dest;
+   ld_dest->type = ppir_target_pipeline;
+   ld_dest->pipeline = ppir_pipeline_reg_uniform;
+   ld_dest->write_mask = 0xf;
+
+   create_new_instr_before(block, node->instr, load_node);
+
+   /* Create move node */
+   ppir_node *move_node = ppir_node_create(block, ppir_op_mov, -1 , 0);
+   if (unlikely(!move_node))
+      return false;
+   list_addtail(&move_node->list, &node->list);
+
+   move_alu = ppir_node_to_alu(move_node);
+
+   move_alu->num_src = 1;
+   move_alu->src->type = ppir_target_pipeline;
+   move_alu->src->pipeline = ppir_pipeline_reg_uniform;
+   for (int i = 0; i < 4; i++)
+      move_alu->src->swizzle[i] = i;
+
+   ppir_dest *alu_dest = &move_alu->dest;
+   alu_dest->type = ppir_target_ssa;
+   alu_dest->ssa.num_components = 4;
+   alu_dest->ssa.live_in = INT_MAX;
+   alu_dest->ssa.live_out = 0;
+   alu_dest->write_mask = 0xf;
+
+   list_addtail(&alu_dest->ssa.list, &comp->reg_list);
+
+   if (!ppir_instr_insert_node(load_node->instr, move_node))
+      return false;
+
+   /* insert the new node as predecessor */
+   ppir_node_foreach_pred_safe(node, dep) {
+      ppir_node *pred = dep->pred;
+      ppir_node_remove_dep(dep);
+      ppir_node_add_dep(load_node, pred);
+   }
+   ppir_node_add_dep(node, move_node);
+   ppir_node_add_dep(move_node, load_node);
+
+update_src:
+   /* switch node src to use the new ssa instead */
+   src->type = ppir_target_ssa;
+   src->ssa = &move_alu->dest.ssa;
+
+   return move_alu;
+}
+
+static ppir_reg *create_reg(ppir_compiler *comp, int num_components)
+{
+   ppir_reg *r = rzalloc(comp, ppir_reg);
+   if (!r)
+      return NULL;
+
+   r->num_components = num_components;
+   r->live_in = INT_MAX;
+   r->live_out = 0;
+   r->is_head = false;
+   list_addtail(&r->list, &comp->reg_list);
+
+   return r;
+}
+
+static bool ppir_update_spilled_dest(ppir_compiler *comp, ppir_block *block,
+                                     ppir_node *node, ppir_dest *dest)
+{
+   assert(dest != NULL);
+   ppir_reg *reg = NULL;
+   if (dest->type == ppir_target_register) {
+      reg = dest->reg;
+      reg->num_components = 4;
+      reg->spilled = true;
+   }
+   else {
+      reg = create_reg(comp, 4);
+      reg->spilled = true;
+      list_del(&dest->ssa.list);
+   }
+
+   /* alloc new node to load value */
+   ppir_node *load_node = ppir_node_create(block, ppir_op_load_temp, -1, 0);
+   if (!load_node)
+      return NULL;
+   list_addtail(&load_node->list, &node->list);
+
+   ppir_load_node *load = ppir_node_to_load(load_node);
+
+   load->index = -comp->prog->stack_size; /* index sizes are negative */
+   load->num_components = 4;
+
+   load->dest.type = ppir_target_pipeline;
+   load->dest.pipeline = ppir_pipeline_reg_uniform;
+   load->dest.write_mask = 0xf;
+
+   create_new_instr_before(block, node->instr, load_node);
+
+   /* Create move node */
+   ppir_node *move_node = ppir_node_create(block, ppir_op_mov, -1 , 0);
+   if (unlikely(!move_node))
+      return false;
+   list_addtail(&move_node->list, &node->list);
+
+   ppir_alu_node *move_alu = ppir_node_to_alu(move_node);
+
+   move_alu->num_src = 1;
+   move_alu->src->type = ppir_target_pipeline;
+   move_alu->src->pipeline = ppir_pipeline_reg_uniform;
+   for (int i = 0; i < 4; i++)
+      move_alu->src->swizzle[i] = i;
+
+   move_alu->dest.type = ppir_target_register;
+   move_alu->dest.reg = reg;
+   move_alu->dest.write_mask = 0x0f;
+
+   if (!ppir_instr_insert_node(load_node->instr, move_node))
+      return false;
+
+   ppir_node_foreach_pred_safe(node, dep) {
+      ppir_node *pred = dep->pred;
+      ppir_node_remove_dep(dep);
+      ppir_node_add_dep(load_node, pred);
+   }
+   ppir_node_add_dep(node, move_node);
+   ppir_node_add_dep(move_node, load_node);
+
+   dest->type = ppir_target_register;
+   dest->reg = reg;
+
+   /* alloc new node to store value */
+   ppir_node *store_node = ppir_node_create(block, ppir_op_store_temp, -1, 0);
+   if (!store_node)
+      return false;
+   list_addtail(&store_node->list, &node->list);
+
+   ppir_store_node *store = ppir_node_to_store(store_node);
+
+   store->index = -comp->prog->stack_size; /* index sizes are negative */
+   store->num_components = 4;
+
+   store->src.type = ppir_target_register;
+   store->src.reg = dest->reg;
+
+   /* insert the new node as successor */
+   ppir_node_foreach_succ_safe(node, dep) {
+      ppir_node *succ = dep->succ;
+      ppir_node_remove_dep(dep);
+      ppir_node_add_dep(succ, store_node);
+   }
+   ppir_node_add_dep(store_node, node);
+
+   create_new_instr_after(block, node->instr, store_node);
+
+   return true;
+}
+
+static bool ppir_regalloc_spill_reg(ppir_compiler *comp, ppir_reg *chosen)
+{
+   list_for_each_entry(ppir_block, block, &comp->block_list, list) {
+      list_for_each_entry(ppir_node, node, &block->node_list, list) {
+
+         ppir_dest *dest = ppir_node_get_dest(node);
+         ppir_reg *reg = NULL;
+         if (dest) {
+            if (dest->type == ppir_target_ssa)
+               reg = &dest->ssa;
+            else if (dest->type == ppir_target_register)
+               reg = dest->reg;
+
+            if (reg == chosen)
+               ppir_update_spilled_dest(comp, block, node, dest);
+         }
+
+         switch (node->type) {
+         case ppir_node_type_alu:
+         {
+            /* alu nodes may have multiple references to the same value.
+             * try to avoid unnecessary loads for the same alu node by
+             * saving the node resulting from the temporary load */
+            ppir_alu_node *move_alu = NULL;
+            ppir_alu_node *alu = ppir_node_to_alu(node);
+            for (int i = 0; i < alu->num_src; i++) {
+               reg = get_src_reg(alu->src + i);
+               if (reg == chosen) {
+                  move_alu = ppir_update_spilled_src(comp, block, node,
+                                                     alu->src + i, move_alu);
+               }
+            }
+            break;
+         }
+         case ppir_node_type_store:
+         {
+            ppir_store_node *store = ppir_node_to_store(node);
+            reg = get_src_reg(&store->src);
+            if (reg == chosen) {
+               ppir_update_spilled_src(comp, block, node, &store->src, NULL);
+            }
+            break;
+         }
+         case ppir_node_type_load:
+         {
+            ppir_load_node *load = ppir_node_to_load(node);
+            reg = get_src_reg(&load->src);
+            if (reg == chosen) {
+               ppir_update_spilled_src(comp, block, node, &load->src, NULL);
+            }
+            break;
+         }
+         case ppir_node_type_load_texture:
+         {
+            ppir_load_texture_node *load_tex = ppir_node_to_load_texture(node);
+            reg = get_src_reg(&load_tex->src_coords);
+            if (reg == chosen) {
+               ppir_update_spilled_src(comp, block, node, &load_tex->src_coords,
+                                       NULL);
+            }
+            break;
+         }
+         default:
+            break;
+         }
+      }
+   }
+
+   return true;
+}
+
+static ppir_reg *ppir_regalloc_choose_spill_node(ppir_compiler *comp,
+                                                 struct ra_graph *g)
+{
+   int max_range = -1;
+   ppir_reg *chosen = NULL;
+
+   list_for_each_entry(ppir_reg, reg, &comp->reg_list, list) {
+      int range = reg->live_out - reg->live_in;
+
+      if (!reg->spilled && reg->live_out != INT_MAX && range > max_range) {
+         chosen = reg;
+         max_range = range;
+      }
+   }
+
+   if (chosen)
+      chosen->spilled = true;
+
+   return chosen;
+}
+
+static void ppir_regalloc_reset_liveness_info(ppir_compiler *comp)
+{
+   list_for_each_entry(ppir_reg, reg, &comp->reg_list, list) {
+      reg->live_in = INT_MAX;
+      reg->live_out = 0;
+   }
+}
+
+static bool ppir_regalloc_prog_try(ppir_compiler *comp, bool *spilled)
+{
+   ppir_reg *end_reg;
+
+   ppir_regalloc_reset_liveness_info(comp);
+   end_reg = ppir_regalloc_build_liveness_info(comp);
 
    struct ra_graph *g = ra_alloc_interference_graph(
       comp->ra, list_length(&comp->reg_list));
@@ -349,7 +694,23 @@ bool ppir_regalloc_prog(ppir_compiler *comp)
 
    ra_set_node_reg(g, end_reg_index, ppir_ra_reg_base[ppir_ra_reg_class_vec4]);
 
-   if (!ra_allocate(g)) {
+   *spilled = false;
+   bool ok = ra_allocate(g);
+   if (!ok) {
+      ppir_reg *chosen = ppir_regalloc_choose_spill_node(comp, g);
+      if (chosen) {
+         /* stack_size will be used to assemble the frame reg in lima_draw.
+          * It is also be used in the spilling code, as negative indices
+          * starting from -1, to create stack addresses. */
+         comp->prog->stack_size++;
+         ppir_regalloc_spill_reg(comp, chosen);
+         /* Ask the outer loop to call back in. */
+         *spilled = true;
+
+         ppir_debug("ppir: spilled register\n");
+         goto err_out;
+      }
+
       ppir_error("ppir: regalloc fail\n");
       goto err_out;
    }
@@ -370,4 +731,20 @@ bool ppir_regalloc_prog(ppir_compiler *comp)
 err_out:
    ralloc_free(g);
    return false;
+}
+
+bool ppir_regalloc_prog(ppir_compiler *comp)
+{
+   bool spilled = false;
+   comp->prog->stack_size = 0;
+
+   ppir_regalloc_update_reglist_ssa(comp);
+
+   /* this will most likely succeed in the first
+    * try, except for very complicated shaders */
+   while (!ppir_regalloc_prog_try(comp, &spilled))
+      if (!spilled)
+         return false;
+
+   return true;
 }

@@ -189,11 +189,10 @@ static bool ppir_lower_modifier(ppir_block *block, ppir_node *node)
 
 static ppir_reg *create_reg(ppir_compiler *comp, int num_components)
 {
-   ppir_reg *r = ralloc(comp, ppir_reg);
+   ppir_reg *r = rzalloc(comp, ppir_reg);
    if (!r)
       return NULL;
 
-   r->index = comp->cur_reg_index++;
    r->num_components = num_components;
    r->live_in = INT_MAX;
    r->live_out = 0;

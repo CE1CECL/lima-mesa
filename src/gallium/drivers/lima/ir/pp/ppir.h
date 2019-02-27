@@ -171,6 +171,7 @@ typedef struct ppir_reg {
    bool is_head;
    /* instr live range */
    int live_in, live_out;
+   bool spilled;
 } ppir_reg;
 
 typedef enum {
@@ -309,7 +310,6 @@ typedef struct ppir_compiler {
    int cur_instr_index;
 
    struct list_head reg_list;
-   int cur_reg_index;
 
    /* array for searching ssa/reg node */
    ppir_node **var_nodes;

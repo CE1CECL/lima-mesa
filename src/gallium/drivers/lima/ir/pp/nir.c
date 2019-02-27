@@ -443,7 +443,6 @@ static ppir_compiler *ppir_compiler_create(void *prog, unsigned num_reg, unsigne
    list_inithead(&comp->block_list);
    list_inithead(&comp->reg_list);
 
-   comp->cur_reg_index = num_reg;
    comp->var_nodes = (ppir_node **)(comp + 1);
    comp->reg_base = num_ssa;
    comp->prog = prog;
@@ -461,7 +460,7 @@ bool ppir_compile_nir(struct lima_fs_shader_state *prog, struct nir_shader *nir,
    comp->ra = ra;
 
    foreach_list_typed(nir_register, reg, node, &func->registers) {
-      ppir_reg *r = ralloc(comp, ppir_reg);
+      ppir_reg *r = rzalloc(comp, ppir_reg);
       if (!r)
          return false;
 
