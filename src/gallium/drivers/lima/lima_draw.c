@@ -1535,7 +1535,7 @@ _lima_flush(struct lima_context *ctx, bool end_of_frame)
    }
 
    struct lima_pp_stream_state *ps = &ctx->pp_stream;
-   if (screen->gpu_type == LIMA_INFO_GPU_MALI400) {
+   if (screen->gpu_type == DRM_LIMA_PARAM_GPU_ID_MALI400) {
       struct drm_lima_m400_pp_frame pp_frame = {0};
       lima_pack_pp_frame_reg(ctx, pp_frame.frame, pp_frame.wb);
       pp_frame.num_pp = screen->num_pp;

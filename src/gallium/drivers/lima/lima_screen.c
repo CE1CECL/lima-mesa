@@ -73,9 +73,9 @@ lima_screen_get_name(struct pipe_screen *pscreen)
    struct lima_screen *screen = lima_screen(pscreen);
 
    switch (screen->gpu_type) {
-   case LIMA_INFO_GPU_MALI400:
+   case DRM_LIMA_PARAM_GPU_ID_MALI400:
      return "Mali400";
-   case LIMA_INFO_GPU_MALI450:
+   case DRM_LIMA_PARAM_GPU_ID_MALI450:
      return "Mali450";
    }
 
@@ -346,21 +346,29 @@ lima_screen_get_compiler_options(struct pipe_screen *pscreen,
 static bool
 lima_screen_query_info(struct lima_screen *screen)
 {
-   struct drm_lima_info drm_info;
+   struct drm_lima_get_param param;
 
-   if (drmIoctl(screen->fd, DRM_IOCTL_LIMA_INFO, &drm_info))
+   memset(&param, 0, sizeof(param));
+   param.param = DRM_LIMA_PARAM_GPU_ID;
+   if (drmIoctl(screen->fd, DRM_IOCTL_LIMA_GET_PARAM, &param))
       return false;
 
-   switch (drm_info.gpu_id) {
-   case LIMA_INFO_GPU_MALI400:
-   case LIMA_INFO_GPU_MALI450:
-      screen->gpu_type = drm_info.gpu_id;
+   switch (param.value) {
+   case DRM_LIMA_PARAM_GPU_ID_MALI400:
+   case DRM_LIMA_PARAM_GPU_ID_MALI450:
+      screen->gpu_type = param.value;
       break;
    default:
       return false;
    }
 
-   screen->num_pp = drm_info.num_pp;
+   memset(&param, 0, sizeof(param));
+   param.param = DRM_LIMA_PARAM_NUM_PP;
+   if (drmIoctl(screen->fd, DRM_IOCTL_LIMA_GET_PARAM, &param))
+      return false;
+
+   screen->num_pp = param.value;
+
    return true;
 }
 

@@ -207,7 +207,7 @@ lima_context_create(struct pipe_screen *pscreen, void *priv, unsigned flags)
    util_dynarray_init(&ctx->vs_cmd_array, ctx);
    util_dynarray_init(&ctx->plbu_cmd_array, ctx);
 
-   if (screen->gpu_type == LIMA_INFO_GPU_MALI450)
+   if (screen->gpu_type == DRM_LIMA_PARAM_GPU_ID_MALI450)
       ctx->plb_max_blk = 4096;
    else
       ctx->plb_max_blk = 512;
@@ -235,7 +235,7 @@ lima_context_create(struct pipe_screen *pscreen, void *priv, unsigned flags)
          plb_gp_stream[j] = ctx->plb[i]->va + LIMA_CTX_PLB_BLK_SIZE * j;
    }
 
-   if (screen->gpu_type == LIMA_INFO_GPU_MALI400) {
+   if (screen->gpu_type == DRM_LIMA_PARAM_GPU_ID_MALI400) {
       ctx->plb_pp_stream = _mesa_hash_table_create(
          ctx, plb_pp_stream_hash, plb_pp_stream_compare);
       if (!ctx->plb_pp_stream)
