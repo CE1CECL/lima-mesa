@@ -89,11 +89,9 @@ lima_ctx_buff_alloc(struct lima_context *ctx, enum lima_ctx_buff buff,
 static int
 lima_context_create_drm_ctx(struct lima_screen *screen)
 {
-   struct drm_lima_ctx req = {
-      .op = LIMA_CTX_OP_CREATE,
-   };
+   struct drm_lima_ctx_create req = {0};
 
-   int ret = drmIoctl(screen->fd, DRM_IOCTL_LIMA_CTX, &req);
+   int ret = drmIoctl(screen->fd, DRM_IOCTL_LIMA_CTX_CREATE, &req);
    if (ret)
       return errno;
 
@@ -103,12 +101,11 @@ lima_context_create_drm_ctx(struct lima_screen *screen)
 static void
 lima_context_free_drm_ctx(struct lima_screen *screen, int id)
 {
-   struct drm_lima_ctx req = {
-      .op = LIMA_CTX_OP_FREE,
+   struct drm_lima_ctx_free req = {
       .id = id,
    };
 
-   drmIoctl(screen->fd, DRM_IOCTL_LIMA_CTX, &req);
+   drmIoctl(screen->fd, DRM_IOCTL_LIMA_CTX_FREE, &req);
 }
 
 static void
