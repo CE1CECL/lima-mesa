@@ -35,6 +35,7 @@
 
 extern FILE *lima_dump_command_stream;
 extern int lima_ctx_num_plb;
+extern int lima_ppir_force_spilling;
 
 struct ra_regs;
 

@@ -320,6 +320,9 @@ typedef struct ppir_compiler {
 
    /* for scheduler */
    int sched_instr_base;
+
+   /* for regalloc spilling debug */
+   int force_spilling;
 } ppir_compiler;
 
 void *ppir_node_create(ppir_block *block, ppir_op op, int index, unsigned mask);

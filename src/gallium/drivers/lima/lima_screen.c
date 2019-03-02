@@ -439,6 +439,13 @@ lima_screen_parse_env(void)
               LIMA_CTX_PLB_MAX_NUM, LIMA_CTX_PLB_DEF_NUM);
       lima_ctx_num_plb = LIMA_CTX_PLB_DEF_NUM;
    }
+
+   lima_ppir_force_spilling = debug_get_num_option("LIMA_PPIR_FORCE_SPILLING", 0);
+   if (lima_ppir_force_spilling < 0) {
+      fprintf(stderr, "lima: LIMA_PPIR_FORCE_SPILLING %d less than 0, "
+              "reset to default 0\n", lima_ppir_force_spilling);
+      lima_ppir_force_spilling = 0;
+   }
 }
 
 struct pipe_screen *

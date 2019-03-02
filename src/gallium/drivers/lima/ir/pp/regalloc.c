@@ -24,6 +24,7 @@
 
 #include "util/ralloc.h"
 #include "util/register_allocate.h"
+#include "util/u_debug.h"
 
 #include "ppir.h"
 #include "lima_context.h"
@@ -647,6 +648,8 @@ static void ppir_regalloc_reset_liveness_info(ppir_compiler *comp)
    }
 }
 
+int lima_ppir_force_spilling = 0;
+
 static bool ppir_regalloc_prog_try(ppir_compiler *comp, bool *spilled)
 {
    ppir_reg *end_reg;
@@ -696,7 +699,7 @@ static bool ppir_regalloc_prog_try(ppir_compiler *comp, bool *spilled)
 
    *spilled = false;
    bool ok = ra_allocate(g);
-   if (!ok) {
+   if (!ok || (comp->force_spilling-- > 0)) {
       ppir_reg *chosen = ppir_regalloc_choose_spill_node(comp, g);
       if (chosen) {
          /* stack_size will be used to assemble the frame reg in lima_draw.
@@ -737,6 +740,10 @@ bool ppir_regalloc_prog(ppir_compiler *comp)
 {
    bool spilled = false;
    comp->prog->stack_size = 0;
+
+   /* Set from an environment variable to force spilling
+    * for debugging purposes, see lima_screen.c */
+   comp->force_spilling = lima_ppir_force_spilling;
 
    ppir_regalloc_update_reglist_ssa(comp);
 
