@@ -150,10 +150,8 @@ static void ppir_regalloc_update_reglist_ssa(ppir_compiler *comp)
 {
    list_for_each_entry(ppir_block, block, &comp->block_list, list) {
       list_for_each_entry(ppir_node, node, &block->node_list, list) {
-         if (node->op == ppir_op_store_color) {
-            ppir_store_node *store = ppir_node_to_store(node);
+         if (node->op == ppir_op_store_color)
             continue;
-         }
 
          if (!node->instr || node->op == ppir_op_const)
             continue;
@@ -347,6 +345,7 @@ static bool create_new_instr_after(ppir_block *block, ppir_instr *ref,
    }
    newinstr->seq = ref->seq+1;
    newinstr->scheduled = true;
+   return true;
 }
 
 static bool create_new_instr_before(ppir_block *block, ppir_instr *ref,
@@ -367,6 +366,7 @@ static bool create_new_instr_before(ppir_block *block, ppir_instr *ref,
    }
    newinstr->seq = ref->seq-1;
    newinstr->scheduled = true;
+   return true;
 }
 
 static ppir_alu_node* ppir_update_spilled_src(ppir_compiler *comp,
