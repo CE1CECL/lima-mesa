@@ -110,7 +110,7 @@ swrastGetDrawableInfo(__DRIdrawable * draw,
    xcb_get_geometry_reply_t *reply;
    xcb_generic_error_t *error;
 
-   *w = *h = 0;
+   *x = *y = *w = *h = 0;
    cookie = xcb_get_geometry (dri2_dpy->conn, dri2_surf->drawable);
    reply = xcb_get_geometry_reply (dri2_dpy->conn, cookie, &error);
    if (reply == NULL)
@@ -120,6 +120,8 @@ swrastGetDrawableInfo(__DRIdrawable * draw,
       _eglLog(_EGL_WARNING, "error in xcb_get_geometry");
       free(error);
    } else {
+      *x = reply->x;
+      *y = reply->y;
       *w = reply->width;
       *h = reply->height;
    }
@@ -645,6 +647,7 @@ dri2_x11_connect(struct dri2_egl_display *dri2_dpy)
        error != NULL || xfixes_query->major_version < 2) {
       _eglLog(_EGL_WARNING, "DRI2: failed to query xfixes version");
       free(error);
+      free(xfixes_query);
       return EGL_FALSE;
    }
    free(xfixes_query);
@@ -772,7 +775,8 @@ dri2_x11_add_configs_for_visuals(struct dri2_egl_display *dri2_dpy,
             dri2_conf = dri2_add_config(disp, config, count + 1, surface_type,
                                         config_attrs, rgba_masks);
             if (dri2_conf)
-               count++;
+               if (dri2_conf->base.ConfigID == count + 1)
+                  count++;
 
             /* Allow a 24-bit RGB visual to match a 32-bit RGBA EGLConfig.
              * Otherwise it will only match a 32-bit RGBA visual.  On a
@@ -787,7 +791,8 @@ dri2_x11_add_configs_for_visuals(struct dri2_egl_display *dri2_dpy,
                dri2_conf = dri2_add_config(disp, config, count + 1, surface_type,
                                            config_attrs, rgba_masks);
                if (dri2_conf)
-                  count++;
+                  if (dri2_conf->base.ConfigID == count + 1)
+                     count++;
             }
 	 }
       }
@@ -1329,6 +1334,7 @@ static const __DRIextension *dri3_image_loader_extensions[] = {
    &dri3_image_loader_extension.base,
    &image_lookup_extension.base,
    &use_invalidate.base,
+   &background_callable_extension.base,
    NULL,
 };
 

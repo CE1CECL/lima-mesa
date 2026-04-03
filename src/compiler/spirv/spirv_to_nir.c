@@ -693,7 +693,7 @@ translate_image_format(SpvImageFormat format)
    case SpvImageFormatRg32ui:       return 0x823C; /* GL_RG32UI */
    case SpvImageFormatRg16ui:       return 0x823A; /* GL_RG16UI */
    case SpvImageFormatRg8ui:        return 0x8238; /* GL_RG8UI */
-   case SpvImageFormatR16ui:        return 0x823A; /* GL_RG16UI */
+   case SpvImageFormatR16ui:        return 0x8234; /* GL_R16UI */
    case SpvImageFormatR8ui:         return 0x8232; /* GL_R8UI */
    default:
       assert(!"Invalid image format");
@@ -1977,6 +1977,7 @@ vtn_handle_image(struct vtn_builder *b, SpvOp opcode,
       intrin->src[2] = nir_src_for_ssa(vtn_ssa_value(b, w[3])->def);
       break;
 
+   case SpvOpAtomicCompareExchange:
    case SpvOpAtomicIIncrement:
    case SpvOpAtomicIDecrement:
    case SpvOpAtomicExchange:
@@ -2112,19 +2113,19 @@ vtn_handle_ssbo_or_shared_atomic(struct vtn_builder *b, SpvOp opcode,
    */
 
    if (chain->var->mode == vtn_variable_mode_workgroup) {
-      struct vtn_type *type = chain->var->type;
       nir_deref_var *deref = vtn_access_chain_to_deref(b, chain);
+      const struct glsl_type *deref_type = nir_deref_tail(&deref->deref)->type;
       nir_intrinsic_op op = get_shared_nir_atomic_op(opcode);
       atomic = nir_intrinsic_instr_create(b->nb.shader, op);
       atomic->variables[0] = nir_deref_var_clone(deref, atomic);
 
       switch (opcode) {
       case SpvOpAtomicLoad:
-         atomic->num_components = glsl_get_vector_elements(type->type);
+         atomic->num_components = glsl_get_vector_elements(deref_type);
          break;
 
       case SpvOpAtomicStore:
-         atomic->num_components = glsl_get_vector_elements(type->type);
+         atomic->num_components = glsl_get_vector_elements(deref_type);
          nir_intrinsic_set_write_mask(atomic, (1 << atomic->num_components) - 1);
          atomic->src[0] = nir_src_for_ssa(vtn_ssa_value(b, w[4])->def);
          break;

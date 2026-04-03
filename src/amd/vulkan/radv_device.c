@@ -81,7 +81,7 @@ static const VkExtensionProperties instance_extensions[] = {
 #ifdef VK_USE_PLATFORM_WAYLAND_KHR
 	{
 		.extensionName = VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME,
-		.specVersion = 5,
+		.specVersion = 6,
 	},
 #endif
 	{
@@ -676,7 +676,7 @@ void radv_GetPhysicalDeviceProperties(
 		.driverVersion = radv_get_driver_version(),
 		.vendorID = 0x1002,
 		.deviceID = pdevice->rad_info.pci_id,
-		.deviceType = VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU,
+		.deviceType = pdevice->rad_info.has_dedicated_vram ? VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU : VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU,
 		.limits = limits,
 		.sparseProperties = {0},
 	};
@@ -827,15 +827,17 @@ void radv_GetPhysicalDeviceMemoryProperties(
 	};
 
 	STATIC_ASSERT(RADV_MEM_HEAP_COUNT <= VK_MAX_MEMORY_HEAPS);
+	uint64_t visible_vram_size = MIN2(physical_device->rad_info.vram_size,
+	                                  physical_device->rad_info.visible_vram_size);
 
 	pMemoryProperties->memoryHeapCount = RADV_MEM_HEAP_COUNT;
 	pMemoryProperties->memoryHeaps[RADV_MEM_HEAP_VRAM] = (VkMemoryHeap) {
 		.size = physical_device->rad_info.vram_size -
-				physical_device->rad_info.visible_vram_size,
+				visible_vram_size,
 		.flags = VK_MEMORY_HEAP_DEVICE_LOCAL_BIT,
 	};
 	pMemoryProperties->memoryHeaps[RADV_MEM_HEAP_VRAM_CPU_ACCESS] = (VkMemoryHeap) {
-		.size = physical_device->rad_info.visible_vram_size,
+		.size = visible_vram_size,
 		.flags = VK_MEMORY_HEAP_DEVICE_LOCAL_BIT,
 	};
 	pMemoryProperties->memoryHeaps[RADV_MEM_HEAP_GTT] = (VkMemoryHeap) {
@@ -2728,9 +2730,13 @@ radv_initialise_color_surface(struct radv_device *device,
 				    format != V_028C70_COLOR_24_8) |
 		S_028C70_NUMBER_TYPE(ntype) |
 		S_028C70_ENDIAN(endian);
-	if (iview->image->samples > 1)
-		if (iview->image->fmask.size)
-			cb->cb_color_info |= S_028C70_COMPRESSION(1);
+	if ((iview->image->samples > 1) && iview->image->fmask.size) {
+		cb->cb_color_info |= S_028C70_COMPRESSION(1);
+		if (device->physical_device->rad_info.chip_class == SI) {
+			unsigned fmask_bankh = util_logbase2(iview->image->fmask.bank_height);
+			cb->cb_color_attrib |= S_028C74_FMASK_BANK_HEIGHT(fmask_bankh);
+		}
+	}
 
 	if (iview->image->cmask.size &&
 	    !(device->debug_flags & RADV_DEBUG_NO_FAST_CLEARS))
@@ -2843,6 +2849,8 @@ radv_initialise_ds_surface(struct radv_device *device,
 		ds->db_z_info |= S_028040_TILE_MODE_INDEX(tile_mode_index);
 		tile_mode_index = si_tile_mode_index(iview->image, level, true);
 		ds->db_stencil_info |= S_028044_TILE_MODE_INDEX(tile_mode_index);
+		if (stencil_only)
+			ds->db_z_info |= S_028040_TILE_MODE_INDEX(tile_mode_index);
 	}
 
 	if (iview->image->surface.htile_size && !level) {

@@ -185,6 +185,11 @@ radv_make_buffer_descriptor(struct radv_device *device,
 	state[0] = va;
 	state[1] = S_008F04_BASE_ADDRESS_HI(va >> 32) |
 		S_008F04_STRIDE(stride);
+
+	if (device->physical_device->rad_info.chip_class < VI && stride) {
+		range /= stride;
+	}
+
 	state[2] = range;
 	state[3] = S_008F0C_DST_SEL_X(radv_map_swizzle(desc->swizzle[0])) |
 		   S_008F0C_DST_SEL_Y(radv_map_swizzle(desc->swizzle[1])) |
@@ -382,7 +387,8 @@ si_make_texture_descriptor(struct radv_device *device,
 			S_008F24_LAST_ARRAY(last_layer);
 		fmask_state[6] = 0;
 		fmask_state[7] = 0;
-	}
+	} else if (fmask_state)
+		memset(fmask_state, 0, 8 * 4);
 }
 
 static void

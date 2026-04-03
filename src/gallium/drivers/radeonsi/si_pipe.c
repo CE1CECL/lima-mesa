@@ -33,9 +33,6 @@
 #include "vl/vl_decoder.h"
 #include "../ddebug/dd_util.h"
 
-#define SI_LLVM_DEFAULT_FEATURES \
-	"+DumpCode,+vgpr-spilling,-fp32-denormals,-xnack"
-
 /*
  * pipe_context
  */
@@ -126,12 +123,16 @@ static LLVMTargetMachineRef
 si_create_llvm_target_machine(struct si_screen *sscreen)
 {
 	const char *triple = "amdgcn--";
+	char features[256];
+
+	snprintf(features, sizeof(features),
+		 "+DumpCode,+vgpr-spilling,-fp32-denormals,+fp64-denormals%s%s",
+		 sscreen->b.chip_class >= GFX9 ? ",+xnack" : ",-xnack",
+		 sscreen->b.debug_flags & DBG_SI_SCHED ? ",+si-scheduler" : "");
 
 	return LLVMCreateTargetMachine(si_llvm_get_amdgpu_target(triple), triple,
 				       r600_get_llvm_processor_name(sscreen->b.family),
-				       sscreen->b.debug_flags & DBG_SI_SCHED ?
-					       SI_LLVM_DEFAULT_FEATURES ",+si-scheduler" :
-					       SI_LLVM_DEFAULT_FEATURES,
+				       features,
 				       LLVMCodeGenLevelDefault,
 				       LLVMRelocDefault,
 				       LLVMCodeModelDefault);
@@ -184,15 +185,24 @@ static struct pipe_context *si_create_context(struct pipe_screen *screen,
 	sctx->b.gfx.cs = ws->cs_create(sctx->b.ctx, RING_GFX,
 				       si_context_gfx_flush, sctx);
 
-	/* SI + AMDGPU + CE = GPU hang */
-	if (!(sscreen->b.debug_flags & DBG_NO_CE) && ws->cs_add_const_ib &&
-	    sscreen->b.chip_class != SI &&
-	    /* These can't use CE due to a power gating bug in the kernel. */
-	    sscreen->b.family != CHIP_CARRIZO &&
-	    sscreen->b.family != CHIP_STONEY &&
-	    /* Some CE bug is causing green screen corruption w/ MPV video
-	     * playback and occasional corruption w/ 3D. */
-	    sscreen->b.chip_class != GFX9) {
+	bool enable_ce = sscreen->b.chip_class != SI && /* SI hangs */
+			 /* These can't use CE due to a power gating bug in the kernel. */
+			 sscreen->b.family != CHIP_CARRIZO &&
+			 sscreen->b.family != CHIP_STONEY;
+
+	/* CE is currently disabled by default, because it makes s_load latency
+	 * worse, because CE IB doesn't run in lockstep with DE.
+	 * Remove this line after that performance issue has been resolved.
+	 */
+	enable_ce = false;
+
+	/* Apply CE overrides. */
+	if (sscreen->b.debug_flags & DBG_NO_CE)
+		enable_ce = false;
+	else if (sscreen->b.debug_flags & DBG_CE)
+		enable_ce = true;
+
+	if (ws->cs_add_const_ib && enable_ce) {
 		sctx->ce_ib = ws->cs_add_const_ib(sctx->b.gfx.cs);
 		if (!sctx->ce_ib)
 			goto fail;
@@ -890,8 +900,8 @@ struct pipe_screen *radeonsi_screen_create(struct radeon_winsys *ws)
 		 sscreen->b.info.pfp_fw_version >= 211 &&
 		 sscreen->b.info.me_fw_version >= 173) ||
 		(sscreen->b.chip_class == SI &&
-		 sscreen->b.info.pfp_fw_version >= 121 &&
-		 sscreen->b.info.me_fw_version >= 87);
+		 sscreen->b.info.pfp_fw_version >= 79 &&
+		 sscreen->b.info.me_fw_version >= 142);
 
 	sscreen->has_ds_bpermute = HAVE_LLVM >= 0x0309 &&
 				   sscreen->b.chip_class >= VI;

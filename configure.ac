@@ -98,7 +98,7 @@ XSHMFENCE_REQUIRED=1.1
 XVMC_REQUIRED=1.0.6
 PYTHON_MAKO_REQUIRED=0.8.0
 LIBSENSORS_REQUIRED=4.0.0
-ZLIB_REQUIRED=1.2.8
+ZLIB_REQUIRED=1.2.3
 
 dnl LLVM versions
 LLVM_REQUIRED_GALLIUM=3.3.0
@@ -270,7 +270,7 @@ DEFINES="-D__STDC_CONSTANT_MACROS -D__STDC_FORMAT_MACROS -D__STDC_LIMIT_MACROS"
 AC_SUBST([DEFINES])
 android=no
 case "$host_os" in
-*-android)
+*-android*)
     android=yes
     ;;
 linux*|*-gnu*|gnu*|cygwin*)
@@ -794,6 +794,27 @@ AC_CHECK_HEADER([sys/sysctl.h], [DEFINES="$DEFINES -DHAVE_SYS_SYSCTL_H"])
 AC_CHECK_FUNC([strtof], [DEFINES="$DEFINES -DHAVE_STRTOF"])
 AC_CHECK_FUNC([mkostemp], [DEFINES="$DEFINES -DHAVE_MKOSTEMP"])
 
+AC_MSG_CHECKING([whether strtod has locale support])
+AC_LINK_IFELSE([AC_LANG_SOURCE([[
+    #define _GNU_SOURCE
+    #include <stdlib.h>
+    #include <locale.h>
+    #ifdef HAVE_XLOCALE_H
+    #include <xlocale.h>
+    #endif
+    int main() {
+       locale_t loc = newlocale(LC_CTYPE_MASK, "C", NULL);
+       const char *s = "1.0";
+       char *end;
+       double d = strtod_l(s, end, loc);
+       float f = strtof_l(s, end, loc);
+       freelocale(loc);
+       return 0;
+    }]])],
+  [DEFINES="$DEFINES -DHAVE_STRTOD_L"];
+   AC_MSG_RESULT([yes]),
+   AC_MSG_RESULT([no]))
+
 dnl Check to see if dlopen is in default libraries (like Solaris, which
 dnl has it in libc), or if libdl is needed to get it.
 AC_CHECK_FUNC([dlopen], [DEFINES="$DEFINES -DHAVE_DLOPEN"],
@@ -838,6 +859,11 @@ dnl is not valid for that platform.
 if test "x$android" = xno; then
     test -z "$PTHREAD_LIBS" && PTHREAD_LIBS="-lpthread"
 fi
+dnl According to the manual when using pthreads, one should add -pthread to
+dnl both compile and link-time arguments.
+dnl In practise that should be sufficient for all platforms, since any
+dnl platforms build with GCC and Clang support the flag.
+PTHREAD_LIBS="$PTHREAD_LIBS -pthread"
 
 dnl pthread-stubs is mandatory on BSD platforms, due to the nature of the
 dnl project. Even then there's a notable issue as described in the project README
@@ -1283,6 +1309,9 @@ AM_CONDITIONAL(HAVE_OPENGL_ES2, test "x$enable_gles2" = xyes)
 AM_CONDITIONAL(NEED_OPENGL_COMMON, test "x$enable_opengl" = xyes -o \
                                         "x$enable_gles1" = xyes -o \
                                         "x$enable_gles2" = xyes)
+AM_CONDITIONAL(NEED_KHRPLATFORM, test "x$enable_egl" = xyes -o \
+                                      "x$enable_gles1" = xyes -o \
+                                      "x$enable_gles2" = xyes)
 
 # Validate GLX options
 if test "x$enable_glx" = xyes; then
@@ -1537,14 +1566,9 @@ xdri)
 
             PKG_CHECK_MODULES([DRI2PROTO], [dri2proto >= $DRI2PROTO_REQUIRED])
             GL_PC_REQ_PRIV="$GL_PC_REQ_PRIV libdrm >= $LIBDRM_REQUIRED"
+
             if test x"$enable_dri" = xyes; then
                dri_modules="$dri_modules xcb-dri2 >= $XCBDRI2_REQUIRED"
-            fi
-
-            if test x"$enable_dri3" = xyes; then
-               PKG_CHECK_EXISTS([xcb >= $XCB_REQUIRED], [], AC_MSG_ERROR([DRI3 requires xcb >= $XCB_REQUIRED]))
-               dri3_modules="xcb xcb-dri3 xcb-present xcb-sync xshmfence >= $XSHMFENCE_REQUIRED"
-               PKG_CHECK_MODULES([XCB_DRI3], [$dri3_modules])
             fi
         fi
         if test x"$dri_platform" = xapple ; then
@@ -1635,6 +1659,111 @@ if test "x$enable_glx_read_only_text" = xyes; then
 fi
 
 dnl
+dnl DEPRECATED: EGL Platforms configuration
+dnl
+AC_ARG_WITH([egl-platforms],
+    [AS_HELP_STRING([--with-egl-platforms@<:@=DIRS...@:>@],
+        [DEPRECATED: use --with-platforms instead@<:@default=auto@:>@])],
+    [with_egl_platforms="$withval"],
+    [with_egl_platforms=auto])
+
+if test "x$with_egl_platforms" = xauto; then
+    with_egl_platforms="x11,surfaceless"
+    if test "x$enable_gbm" = xyes; then
+        with_egl_platforms="$with_egl_platforms,drm"
+    fi
+else
+    AC_MSG_WARN([--with-egl-platforms is deprecated. Use --with-platforms instead.])
+fi
+
+dnl
+dnl Platforms configuration
+dnl
+AC_ARG_WITH([platforms],
+    [AS_HELP_STRING([--with-platforms@<:@=DIRS...@:>@],
+        [comma delimited native platforms libEGL/Vulkan/other supports, e.g.
+        "x11,drm,wayland,surfaceless..." @<:@default=auto@:>@])],
+    [with_platforms="$withval"],
+    [with_platforms=auto])
+
+# Reuse the autodetection rather than duplicating it.
+if test "x$with_platforms" = xauto; then
+    with_platforms=$with_egl_platforms
+fi
+
+PKG_CHECK_MODULES([WAYLAND_SCANNER], [wayland-scanner],
+        WAYLAND_SCANNER=`$PKG_CONFIG --variable=wayland_scanner wayland-scanner`,
+        WAYLAND_SCANNER='')
+if test "x$WAYLAND_SCANNER" = x; then
+    AC_PATH_PROG([WAYLAND_SCANNER], [wayland-scanner], [:])
+fi
+
+# Do per platform setups and checks
+platforms=`IFS=', '; echo $with_platforms`
+for plat in $platforms; do
+	case "$plat" in
+	wayland)
+
+		PKG_CHECK_MODULES([WAYLAND], [wayland-client >= $WAYLAND_REQUIRED wayland-server >= $WAYLAND_REQUIRED])
+
+		if test "x$WAYLAND_SCANNER" = "x:"; then
+			AC_MSG_ERROR([wayland-scanner is needed to compile the wayland platform])
+		fi
+		DEFINES="$DEFINES -DHAVE_WAYLAND_PLATFORM"
+		;;
+
+	x11)
+		PKG_CHECK_MODULES([XCB_DRI2], [x11-xcb xcb xcb-dri2 >= $XCBDRI2_REQUIRED xcb-xfixes])
+		DEFINES="$DEFINES -DHAVE_X11_PLATFORM"
+		;;
+
+	drm)
+		test "x$enable_gbm" = "xno" &&
+			AC_MSG_ERROR([EGL platform drm needs gbm])
+		DEFINES="$DEFINES -DHAVE_DRM_PLATFORM"
+		;;
+
+	surfaceless)
+		DEFINES="$DEFINES -DHAVE_SURFACELESS_PLATFORM"
+		;;
+
+	android)
+		PKG_CHECK_MODULES([ANDROID], [cutils hardware sync])
+		DEFINES="$DEFINES -DHAVE_ANDROID_PLATFORM"
+		;;
+
+	*)
+		AC_MSG_ERROR([platform '$plat' does not exist])
+		;;
+	esac
+
+	case "$plat" in
+	wayland|drm|surfaceless)
+		require_libdrm "Platform $plat"
+		;;
+	esac
+done
+
+if test "x$enable_glx" != xno; then
+    if ! echo "$platforms" | grep -q 'x11'; then
+        AC_MSG_ERROR([Building without the x11 platform as GLX is enabled, is not supported])
+    fi
+fi
+
+if test x"$enable_dri3" = xyes; then
+    DEFINES="$DEFINES -DHAVE_DRI3"
+
+    dri3_modules="x11-xcb xcb >= $XCB_REQUIRED xcb-dri3 xcb-xfixes xcb-present xcb-sync xshmfence >= $XSHMFENCE_REQUIRED"
+    PKG_CHECK_MODULES([XCB_DRI3], [$dri3_modules])
+fi
+
+AM_CONDITIONAL(HAVE_PLATFORM_X11, echo "$platforms" | grep -q 'x11')
+AM_CONDITIONAL(HAVE_PLATFORM_WAYLAND, echo "$platforms" | grep -q 'wayland')
+AM_CONDITIONAL(HAVE_PLATFORM_DRM, echo "$platforms" | grep -q 'drm')
+AM_CONDITIONAL(HAVE_PLATFORM_SURFACELESS, echo "$platforms" | grep -q 'surfaceless')
+AM_CONDITIONAL(HAVE_PLATFORM_ANDROID, echo "$platforms" | grep -q 'android')
+
+dnl
 dnl More DRI setup
 dnl
 dnl Directory for DRI drivers
@@ -1676,10 +1805,6 @@ if test "x$enable_dri" = xyes; then
     # Platform specific settings and drivers to build
     case "$host_os" in
     linux*)
-        if test "x$enable_dri3" = xyes; then
-            DEFINES="$DEFINES -DHAVE_DRI3"
-        fi
-
         case "$host_cpu" in
         powerpc* | sparc*)
             # Build only the drivers for cards that exist on PowerPC/sparc
@@ -1835,6 +1960,14 @@ AC_ARG_WITH([vulkan-icddir],
     [VULKAN_ICD_INSTALL_DIR='${datarootdir}/vulkan/icd.d'])
 AC_SUBST([VULKAN_ICD_INSTALL_DIR])
 
+require_x11_dri3() {
+    if echo "$platforms" | grep -q 'x11'; then
+        if test "x$enable_dri3" != xyes; then
+            AC_MSG_ERROR([$1 Vulkan driver requires DRI3 when built with X11])
+        fi
+    fi
+}
+
 if test -n "$with_vulkan_drivers"; then
     if test "x$ac_cv_func_dl_iterate_phdr" = xno; then
         AC_MSG_ERROR([Vulkan drivers require the dl_iterate_phdr function])
@@ -1846,12 +1979,14 @@ if test -n "$with_vulkan_drivers"; then
         xintel)
             require_libdrm "ANV"
             PKG_CHECK_MODULES([INTEL], [libdrm >= $LIBDRM_INTEL_REQUIRED libdrm_intel >= $LIBDRM_INTEL_REQUIRED])
+            require_x11_dri3 "ANV"
             HAVE_INTEL_VULKAN=yes
             ;;
         xradeon)
             require_libdrm "radv"
             PKG_CHECK_MODULES([AMDGPU], [libdrm >= $LIBDRM_AMDGPU_REQUIRED libdrm_amdgpu >= $LIBDRM_AMDGPU_REQUIRED])
             radeon_llvm_check $LLVM_REQUIRED_RADV "radv"
+            require_x11_dri3 "radv"
             HAVE_RADEON_VULKAN=yes
             ;;
         *)
@@ -1957,23 +2092,47 @@ if test "x$enable_xa" = xyes; then
 fi
 AM_CONDITIONAL(HAVE_ST_XA, test "x$enable_xa" = xyes)
 
+if echo $platforms | grep -q "x11"; then
+    have_xvmc_platform=yes
+else
+    have_xvmc_platform=no
+fi
+
+if echo $platforms | grep -q "x11"; then
+    have_vdpau_platform=yes
+else
+    have_vdpau_platform=no
+fi
+
+if echo $platforms | grep -q "x11\|drm"; then
+    have_omx_platform=yes
+else
+    have_omx_platform=no
+fi
+
+if echo $platforms | grep -q "x11\|drm\|wayland"; then
+    have_va_platform=yes
+else
+    have_va_platform=no
+fi
+
 dnl
 dnl Gallium G3DVL configuration
 dnl
 if test -n "$with_gallium_drivers" -a "x$with_gallium_drivers" != xswrast; then
-    if test "x$enable_xvmc" = xauto; then
+    if test "x$enable_xvmc" = xauto -a "x$have_xvmc_platform" = xyes; then
 	PKG_CHECK_EXISTS([xvmc >= $XVMC_REQUIRED], [enable_xvmc=yes], [enable_xvmc=no])
     fi
 
-    if test "x$enable_vdpau" = xauto; then
+    if test "x$enable_vdpau" = xauto -a "x$have_vdpau_platform" = xyes; then
 	PKG_CHECK_EXISTS([vdpau >= $VDPAU_REQUIRED], [enable_vdpau=yes], [enable_vdpau=no])
     fi
 
-    if test "x$enable_omx" = xauto; then
+    if test "x$enable_omx" = xauto -a "x$have_omx_platform" = xyes; then
 	PKG_CHECK_EXISTS([libomxil-bellagio >= $LIBOMXIL_BELLAGIO_REQUIRED], [enable_omx=yes], [enable_omx=no])
     fi
 
-    if test "x$enable_va" = xauto; then
+    if test "x$enable_va" = xauto -a "x$have_va_platform" = xyes; then
         PKG_CHECK_EXISTS([libva >= $LIBVA_REQUIRED], [enable_va=yes], [enable_va=no])
     fi
 fi
@@ -1991,23 +2150,24 @@ if test "x$enable_xvmc" = xyes -o \
         "x$enable_vdpau" = xyes -o \
         "x$enable_omx" = xyes -o \
         "x$enable_va" = xyes; then
-    if test x"$enable_dri3" = xyes; then
-        PKG_CHECK_MODULES([VL], [xcb-dri3 xcb-present xcb-sync xshmfence >= $XSHMFENCE_REQUIRED
-                                 xcb-xfixes x11-xcb xcb xcb-dri2 >= $XCBDRI2_REQUIRED])
-    else
-        PKG_CHECK_MODULES([VL], [x11-xcb xcb xcb-dri2 >= $XCBDRI2_REQUIRED])
-    fi
+    PKG_CHECK_MODULES([VL], [x11-xcb xcb xcb-dri2 >= $XCBDRI2_REQUIRED])
     need_gallium_vl_winsys=yes
 fi
 AM_CONDITIONAL(NEED_GALLIUM_VL_WINSYS, test "x$need_gallium_vl_winsys" = xyes)
 
 if test "x$enable_xvmc" = xyes; then
+    if test "x$have_xvmc_platform" != xyes; then
+        AC_MSG_ERROR([XVMC requires the x11 platforms])
+    fi
     PKG_CHECK_MODULES([XVMC], [xvmc >= $XVMC_REQUIRED])
     gallium_st="$gallium_st xvmc"
 fi
 AM_CONDITIONAL(HAVE_ST_XVMC, test "x$enable_xvmc" = xyes)
 
 if test "x$enable_vdpau" = xyes; then
+    if test "x$have_vdpau_platform" != xyes; then
+        AC_MSG_ERROR([VDPAU requires the x11 platforms])
+    fi
     PKG_CHECK_MODULES([VDPAU], [vdpau >= $VDPAU_REQUIRED])
     gallium_st="$gallium_st vdpau"
     DEFINES="$DEFINES -DHAVE_ST_VDPAU"
@@ -2015,12 +2175,18 @@ fi
 AM_CONDITIONAL(HAVE_ST_VDPAU, test "x$enable_vdpau" = xyes)
 
 if test "x$enable_omx" = xyes; then
+    if test "x$have_omx_platform" != xyes; then
+        AC_MSG_ERROR([OMX requires at least one of the x11 or drm platforms])
+    fi
     PKG_CHECK_MODULES([OMX], [libomxil-bellagio >= $LIBOMXIL_BELLAGIO_REQUIRED])
     gallium_st="$gallium_st omx"
 fi
 AM_CONDITIONAL(HAVE_ST_OMX, test "x$enable_omx" = xyes)
 
 if test "x$enable_va" = xyes; then
+    if test "x$have_va_platform" != xyes; then
+        AC_MSG_ERROR([VA requires at least one of the x11 drm or wayland platforms])
+    fi
     PKG_CHECK_MODULES([VA], [libva >= $LIBVA_REQUIRED])
     gallium_st="$gallium_st va"
 fi
@@ -2137,113 +2303,21 @@ dnl Gallium configuration
 dnl
 AM_CONDITIONAL(HAVE_GALLIUM, test -n "$with_gallium_drivers")
 
-dnl
-dnl DEPRECATED: EGL Platforms configuration
-dnl
-AC_ARG_WITH([egl-platforms],
-    [AS_HELP_STRING([--with-egl-platforms@<:@=DIRS...@:>@],
-        [DEPRECATED: use --with-platforms instead@<:@default=auto@:>@])],
-    [with_egl_platforms="$withval"],
-    [with_egl_platforms=auto])
-
-if test "x$with_egl_platforms" = xauto; then
-    if test "x$enable_egl" = xyes; then
-        if test "x$enable_gbm" = xyes; then
-           with_egl_platforms="x11,drm"
-        else
-           with_egl_platforms="x11"
-        fi
-    else
-        with_egl_platforms=""
-    fi
-else
-    AC_MSG_WARN([--with-egl-platforms is deprecated. Use --with-platforms instead.])
-fi
-
-dnl
-dnl Platforms configuration
-dnl
-AC_ARG_WITH([platforms],
-    [AS_HELP_STRING([--with-platforms@<:@=DIRS...@:>@],
-        [comma delimited native platforms libEGL/Vulkan/other supports, e.g.
-        "x11,drm,wayland,surfaceless..." @<:@default=auto@:>@])],
-    [with_platforms="$withval"],
-    [with_platforms=auto])
-
-# For the time being, we still reuse the EGL named variables/defines.
-if test "x$with_platforms" != xauto; then
-    with_egl_platforms=$with_platforms
-fi
-
-PKG_CHECK_MODULES([WAYLAND_SCANNER], [wayland-scanner],
-        WAYLAND_SCANNER=`$PKG_CONFIG --variable=wayland_scanner wayland-scanner`,
-        WAYLAND_SCANNER='')
-if test "x$WAYLAND_SCANNER" = x; then
-    AC_PATH_PROG([WAYLAND_SCANNER], [wayland-scanner], [:])
-fi
-
-# Do per-EGL platform setups and checks
-egl_platforms=`IFS=', '; echo $with_egl_platforms`
-for plat in $egl_platforms; do
-	case "$plat" in
-	wayland)
-
-		PKG_CHECK_MODULES([WAYLAND], [wayland-client >= $WAYLAND_REQUIRED wayland-server >= $WAYLAND_REQUIRED])
-
-		if test "x$WAYLAND_SCANNER" = "x:"; then
-			AC_MSG_ERROR([wayland-scanner is needed to compile the wayland egl platform])
-		fi
-		;;
-
-	x11)
-		PKG_CHECK_MODULES([XCB_DRI2], [x11-xcb xcb xcb-dri2 >= $XCBDRI2_REQUIRED xcb-xfixes])
-		;;
-
-	drm)
-		test "x$enable_gbm" = "xno" &&
-			AC_MSG_ERROR([EGL platform drm needs gbm])
-		;;
-
-	surfaceless)
-		;;
-
-	android)
-		PKG_CHECK_MODULES([ANDROID], [cutils hardware sync])
-		;;
-
-	*)
-		AC_MSG_ERROR([EGL platform '$plat' does not exist])
-		;;
-	esac
-
-	case "$plat" in
-	wayland|drm|surfaceless)
-		require_libdrm "Platform $plat"
-		;;
-	esac
-done
-
 # libEGL wants to default to the first platform specified in
 # ./configure.  parse that here.
-if test "x$egl_platforms" != "x"; then
-    FIRST_PLATFORM_CAPS=`echo $egl_platforms | sed 's| .*||' | tr '[[a-z]]' '[[A-Z]]'`
+if test "x$platforms" != "x"; then
+    FIRST_PLATFORM_CAPS=`echo $platforms | sed 's| .*||' | tr '[[a-z]]' '[[A-Z]]'`
     EGL_NATIVE_PLATFORM="_EGL_PLATFORM_$FIRST_PLATFORM_CAPS"
 else
     EGL_NATIVE_PLATFORM="_EGL_INVALID_PLATFORM"
 fi
-
-AM_CONDITIONAL(HAVE_PLATFORM_X11, echo "$egl_platforms" | grep -q 'x11')
-AM_CONDITIONAL(HAVE_PLATFORM_WAYLAND, echo "$egl_platforms" | grep -q 'wayland')
-AM_CONDITIONAL(HAVE_EGL_PLATFORM_DRM, echo "$egl_platforms" | grep -q 'drm')
-AM_CONDITIONAL(HAVE_EGL_PLATFORM_SURFACELESS, echo "$egl_platforms" | grep -q 'surfaceless')
-AM_CONDITIONAL(HAVE_EGL_PLATFORM_ANDROID, echo "$egl_platforms" | grep -q 'android')
 
 AC_SUBST([EGL_NATIVE_PLATFORM])
 AC_SUBST([EGL_CFLAGS])
 
 # If we don't have the X11 platform, set this define so we don't try to include
 # the X11 headers.
-if ! echo "$egl_platforms" | grep -q 'x11'; then
+if ! echo "$platforms" | grep -q 'x11'; then
     DEFINES="$DEFINES -DMESA_EGL_NO_X11_HEADERS"
     GL_PC_CFLAGS="$GL_PC_CFLAGS -DMESA_EGL_NO_X11_HEADERS"
 fi
@@ -2313,7 +2387,7 @@ dnl DRM is needed by X, Wayland, and offscreen rendering.
 dnl Surfaceless is an alternative for the last one.
 dnl
 require_basic_egl() {
-    case "$with_egl_platforms" in
+    case "$with_platforms" in
         *drm*|*surfaceless*)
             ;;
         *)
@@ -2437,10 +2511,10 @@ if test -n "$with_gallium_drivers"; then
         xswr)
             llvm_require_version $LLVM_REQUIRED_SWR "swr"
 
-            swr_require_cxx_feature_flags "C++14" "__cplusplus >= 201402L" \
-                "-std=c++14" \
-                SWR_CXX14_CXXFLAGS
-            AC_SUBST([SWR_CXX14_CXXFLAGS])
+            swr_require_cxx_feature_flags "C++11" "__cplusplus >= 201103L" \
+                ",-std=c++11" \
+                SWR_CXX11_CXXFLAGS
+            AC_SUBST([SWR_CXX11_CXXFLAGS])
 
             swr_require_cxx_feature_flags "AVX" "defined(__AVX__)" \
                 ",-mavx,-march=core-avx" \
@@ -2880,7 +2954,7 @@ else
     echo "        GBM:             no"
 fi
 
-    echo "        EGL/Vulkan/VL platforms:   $egl_platforms"
+    echo "        EGL/Vulkan/VL platforms:   $platforms"
 
 # Vulkan
 echo ""

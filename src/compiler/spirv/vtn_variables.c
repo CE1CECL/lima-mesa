@@ -96,6 +96,10 @@ rewrite_deref_types(nir_deref *deref, const struct glsl_type *type)
 nir_deref_var *
 vtn_access_chain_to_deref(struct vtn_builder *b, struct vtn_access_chain *chain)
 {
+   /* Do on-the-fly copy propagation for samplers. */
+   if (chain->var->copy_prop_sampler)
+      return vtn_access_chain_to_deref(b, chain->var->copy_prop_sampler);
+
    nir_deref_var *deref_var;
    if (chain->var->var) {
       deref_var = nir_deref_var_create(b, chain->var->var);
@@ -1000,6 +1004,10 @@ vtn_get_builtin_location(struct vtn_builder *b,
       *location = FRAG_RESULT_DEPTH;
       assert(*mode == nir_var_shader_out);
       break;
+   case SpvBuiltInHelperInvocation:
+      *location = SYSTEM_VALUE_HELPER_INVOCATION;
+      set_mode_system_value(mode);
+      break;
    case SpvBuiltInNumWorkgroups:
       *location = SYSTEM_VALUE_NUM_WORK_GROUPS;
       set_mode_system_value(mode);
@@ -1036,7 +1044,6 @@ vtn_get_builtin_location(struct vtn_builder *b,
       *location = SYSTEM_VALUE_DRAW_ID;
       set_mode_system_value(mode);
       break;
-   case SpvBuiltInHelperInvocation:
    default:
       unreachable("unsupported builtin");
    }
@@ -1609,6 +1616,16 @@ vtn_handle_variables(struct vtn_builder *b, SpvOp opcode,
    case SpvOpStore: {
       struct vtn_access_chain *dest =
          vtn_value(b, w[1], vtn_value_type_access_chain)->access_chain;
+
+      if (glsl_type_is_sampler(dest->var->type->type)) {
+         vtn_warn("OpStore of a sampler detected.  Doing on-the-fly copy "
+                  "propagation to workaround the problem.");
+         assert(dest->var->copy_prop_sampler == NULL);
+         dest->var->copy_prop_sampler =
+            vtn_value(b, w[2], vtn_value_type_access_chain)->access_chain;
+         break;
+      }
+
       struct vtn_ssa_value *src = vtn_ssa_value(b, w[2]);
       vtn_variable_store(b, src, dest);
       break;

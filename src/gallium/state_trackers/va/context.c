@@ -118,9 +118,7 @@ VA_DRIVER_INIT_FUNC(VADriverContextP ctx)
       return VA_STATUS_ERROR_UNIMPLEMENTED;
    case VA_DISPLAY_GLX:
    case VA_DISPLAY_X11:
-#if defined(HAVE_DRI3)
       drv->vscreen = vl_dri3_screen_create(ctx->native_dpy, ctx->x11_screen);
-#endif
       if (!drv->vscreen)
          drv->vscreen = vl_dri2_screen_create(ctx->native_dpy, ctx->x11_screen);
       if (!drv->vscreen)
@@ -139,8 +137,8 @@ VA_DRIVER_INIT_FUNC(VADriverContextP ctx)
       drv->vscreen = vl_drm_screen_create(drm_info->fd);
       if (!drv->vscreen)
          goto error_screen;
-      }
       break;
+   }
    default:
       FREE(drv);
       return VA_STATUS_ERROR_INVALID_DISPLAY;
@@ -171,7 +169,7 @@ VA_DRIVER_INIT_FUNC(VADriverContextP ctx)
    *ctx->vtable = vtable;
    *ctx->vtable_vpp = vtable_vpp;
    ctx->max_profiles = PIPE_VIDEO_PROFILE_MPEG4_AVC_HIGH - PIPE_VIDEO_PROFILE_UNKNOWN;
-   ctx->max_entrypoints = 1;
+   ctx->max_entrypoints = 2;
    ctx->max_attributes = 1;
    ctx->max_image_formats = VL_VA_MAX_IMAGE_FORMATS;
    ctx->max_subpic_formats = 1;

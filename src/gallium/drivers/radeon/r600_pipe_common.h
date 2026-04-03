@@ -64,12 +64,12 @@
 #define R600_PRIM_RECTANGLE_LIST	PIPE_PRIM_MAX
 
 /* Debug flags. */
-/* logging */
+/* logging and features */
 #define DBG_TEX			(1 << 0)
 /* gap - reuse */
 #define DBG_COMPUTE		(1 << 2)
 #define DBG_VM			(1 << 3)
-/* gap - reuse */
+#define DBG_CE			(1 << 4)
 /* shader logging */
 #define DBG_FS			(1 << 5)
 #define DBG_VS			(1 << 6)
@@ -986,5 +986,10 @@ vi_dcc_enabled(struct r600_texture *tex, unsigned level)
 	(((unsigned)(s1x) & 0xf) << 8) | (((unsigned)(s1y) & 0xf) << 12) |	   \
 	(((unsigned)(s2x) & 0xf) << 16) | (((unsigned)(s2y) & 0xf) << 20) |	   \
 	 (((unsigned)(s3x) & 0xf) << 24) | (((unsigned)(s3y) & 0xf) << 28))
+
+static inline int S_FIXED(float value, unsigned frac_bits)
+{
+	return value * (1 << frac_bits);
+}
 
 #endif

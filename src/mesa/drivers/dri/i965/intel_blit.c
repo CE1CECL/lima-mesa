@@ -188,7 +188,6 @@ get_blit_intratile_offset_el(const struct brw_context *brw,
        * The offsets we get from ISL in the tiled case are already aligned.
        * In the linear case, we need to do some of our own aligning.
        */
-      assert(mt->pitch % 64 == 0);
       uint32_t delta = *base_address_offset & 63;
       assert(delta % mt->cpp == 0);
       *base_address_offset -= delta;
@@ -329,6 +328,7 @@ intel_miptree_blit(struct brw_context *brw,
    intel_miptree_slice_resolve_depth(brw, dst_mt, dst_level, dst_slice);
    intel_miptree_resolve_color(brw, src_mt, src_level, src_slice, 1, 0);
    intel_miptree_resolve_color(brw, dst_mt, dst_level, dst_slice, 1, 0);
+   intel_miptree_slice_set_needs_hiz_resolve(dst_mt, dst_level, dst_slice);
 
    if (src_flip)
       src_y = minify(src_mt->physical_height0, src_level - src_mt->first_level) - src_y - height;
@@ -387,6 +387,7 @@ intel_miptree_copy(struct brw_context *brw,
    intel_miptree_slice_resolve_depth(brw, dst_mt, dst_level, dst_slice);
    intel_miptree_resolve_color(brw, src_mt, src_level, src_slice, 1, 0);
    intel_miptree_resolve_color(brw, dst_mt, dst_level, dst_slice, 1, 0);
+   intel_miptree_slice_set_needs_hiz_resolve(dst_mt, dst_level, dst_slice);
 
    uint32_t src_image_x, src_image_y;
    intel_miptree_get_image_offset(src_mt, src_level, src_slice,
@@ -411,8 +412,8 @@ intel_miptree_copy(struct brw_context *brw,
 
       src_x /= (int)bw;
       src_y /= (int)bh;
-      src_width /= (int)bw;
-      src_height /= (int)bh;
+      src_width = DIV_ROUND_UP(src_width, (int)bw);
+      src_height = DIV_ROUND_UP(src_height, (int)bh);
    }
    src_x += src_image_x;
    src_y += src_image_y;
@@ -824,11 +825,11 @@ intel_miptree_set_alpha_to_one(struct brw_context *brw,
          if (brw->gen >= 8) {
             OUT_RELOC64(mt->bo,
                         I915_GEM_DOMAIN_RENDER, I915_GEM_DOMAIN_RENDER,
-                        offset);
+                        mt->offset + offset);
          } else {
             OUT_RELOC(mt->bo,
                       I915_GEM_DOMAIN_RENDER, I915_GEM_DOMAIN_RENDER,
-                      offset);
+                      mt->offset + offset);
          }
          OUT_BATCH(0xffffffff); /* white, but only alpha gets written */
          ADVANCE_BATCH_TILED(dst_y_tiled, false);

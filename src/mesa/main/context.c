@@ -1312,6 +1312,8 @@ _mesa_free_context_data( struct gl_context *ctx )
    _mesa_reference_program(ctx, &ctx->FragmentProgram._Current, NULL);
    _mesa_reference_program(ctx, &ctx->FragmentProgram._TexEnvProgram, NULL);
 
+   _mesa_reference_program(ctx, &ctx->ComputeProgram._Current, NULL);
+
    _mesa_reference_vao(ctx, &ctx->Array.VAO, NULL);
    _mesa_reference_vao(ctx, &ctx->Array.DefaultVAO, NULL);
 
@@ -1654,17 +1656,23 @@ _mesa_make_current( struct gl_context *newCtx,
       _mesa_flush(curCtx);
 
    /* We used to call _glapi_check_multithread() here.  Now do it in drivers */
-   _glapi_set_context((void *) newCtx);
-   assert(_mesa_get_current_context() == newCtx);
 
    if (!newCtx) {
       _glapi_set_dispatch(NULL);  /* none current */
+      /* We need old ctx to correctly release Draw/ReadBuffer
+       * and avoid a surface leak in st_renderbuffer_delete.
+       * Therefore, first drop buffers then set new ctx to NULL.
+       */
       if (curCtx) {
          _mesa_reference_framebuffer(&curCtx->WinSysDrawBuffer, NULL);
          _mesa_reference_framebuffer(&curCtx->WinSysReadBuffer, NULL);
       }
+      _glapi_set_context(NULL);
+      assert(_mesa_get_current_context() == NULL);
    }
    else {
+      _glapi_set_context((void *) newCtx);
+      assert(_mesa_get_current_context() == newCtx);
       _glapi_set_dispatch(newCtx->CurrentClientDispatch);
 
       if (drawBuffer && readBuffer) {
