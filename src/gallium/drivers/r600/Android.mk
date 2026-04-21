@@ -34,5 +34,9 @@ LOCAL_STATIC_LIBRARIES := libmesa_amd_common
 LOCAL_SHARED_LIBRARIES := libdrm_radeon
 LOCAL_MODULE := libmesa_pipe_r600
 
+ifeq ($(MESA_LOLLIPOP_BUILD),true)
+else
+include external/stlport/libstlport.mk
+endif
 include $(GALLIUM_COMMON_MK)
 include $(BUILD_STATIC_LIBRARY)
