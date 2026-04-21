@@ -40,10 +40,14 @@ LOCAL_CFLAGS += \
 	-Wno-mismatched-tags \
 	-DPACKAGE_VERSION=\"$(MESA_VERSION)\" \
 	-DPACKAGE_BUGREPORT=\"https://bugs.freedesktop.org/enter_bug.cgi?product=Mesa\" \
+	-DHAVE_ANDROID_PLATFORM \
 	-DANDROID_VERSION=0x0$(MESA_ANDROID_MAJOR_VERSION)0$(MESA_ANDROID_MINOR_VERSION)
 
 LOCAL_CFLAGS += \
+	-DANDROID_API_LEVEL=$(PLATFORM_SDK_VERSION) \
 	-DENABLE_SHADER_CACHE \
+	-D__STDC_CONSTANT_MACROS \
+	-D__STDC_LIMIT_MACROS \
 	-DHAVE___BUILTIN_EXPECT \
 	-DHAVE___BUILTIN_FFS \
 	-DHAVE___BUILTIN_FFSLL \
@@ -62,6 +66,7 @@ LOCAL_CFLAGS += \
 	-DHAVE_DLOPEN \
 	-DHAVE_DL_ITERATE_PHDR \
 	-DMAJOR_IN_SYSMACROS \
+	-DTEXTURE_FLOAT_ENABLED \
 	-fvisibility=hidden \
 	-Wno-sign-compare
 
@@ -74,13 +79,28 @@ LOCAL_CPPFLAGS += \
 LOCAL_CONLYFLAGS += \
 	-std=c99
 
+x86_flags := \
+	-DUSE_SSE41 \
+
+x86_64_flags := \
+	-DUSE_SSE41 \
+
 ifeq ($(strip $(MESA_ENABLE_ASM)),true)
-ifeq ($(TARGET_ARCH),x86)
-LOCAL_CFLAGS += \
-	-DUSE_X86_ASM
+x86_flags += \
+	-DUSE_X86_ASM \
+	-DUSE_MMX_ASM \
+	-DUSE_3DNOW_ASM \
+	-DUSE_SSE_ASM
+
+x86_64_flags += \
+	-DUSE_X86_64_ASM
 
 endif
-endif
+
+LOCAL_ASFLAGS_x86 += $(x86_flags)
+LOCAL_ASFLAGS_x86_64 += $(x86_64_flags)
+LOCAL_CFLAGS_x86 += $(x86_flags)
+LOCAL_CFLAGS_x86_64 += $(x86_64_flags)
 
 ifeq ($(MESA_ENABLE_LLVM),true)
   ifeq ($(MESA_ANDROID_MAJOR_VERSION),5)
@@ -89,11 +109,9 @@ ifeq ($(MESA_ENABLE_LLVM),true)
   endif
   ifeq ($(MESA_ANDROID_MAJOR_VERSION),6)
     LOCAL_CFLAGS += -DHAVE_LLVM=0x0307 -DMESA_LLVM_VERSION_PATCH=0
-    ELF_INCLUDES := external/elfutils/src/libelf
   endif
   ifeq ($(MESA_ANDROID_MAJOR_VERSION),7)
     LOCAL_CFLAGS += -DHAVE_LLVM=0x0308 -DMESA_LLVM_VERSION_PATCH=0
-    ELF_INCLUDES := external/elfutils/libelf
   endif
 endif
 

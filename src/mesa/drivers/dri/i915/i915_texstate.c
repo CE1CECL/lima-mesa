@@ -61,6 +61,8 @@ translate_texture_format(mesa_format mesa_format, GLenum DepthMode)
       return MAPSURF_32BIT | MT_32BIT_ARGB8888;
    case MESA_FORMAT_B8G8R8X8_UNORM:
       return MAPSURF_32BIT | MT_32BIT_XRGB8888;
+   case MESA_FORMAT_R8G8B8X8_UNORM:
+      return MAPSURF_32BIT | MT_32BIT_XBGR8888;
    case MESA_FORMAT_R8G8B8A8_UNORM:
       return MAPSURF_32BIT | MT_32BIT_ABGR8888;
    case MESA_FORMAT_YCBCR_REV:
@@ -423,6 +425,7 @@ i915UpdateTextureState(struct intel_context *intel)
          case GL_TEXTURE_2D:
          case GL_TEXTURE_CUBE_MAP:
          case GL_TEXTURE_3D:
+         case GL_TEXTURE_EXTERNAL_OES:
             ok = i915_update_tex_unit(intel, i, SS3_NORMALIZED_COORDS);
             break;
          case GL_TEXTURE_RECTANGLE:

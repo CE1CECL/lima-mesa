@@ -42,6 +42,7 @@ LOCAL_SHARED_LIBRARIES := \
 	libdl \
 	libglapi \
 	libexpat \
+	libhardware \
 	libz
 
 ifneq ($(filter freedreno,$(MESA_GPU_DRIVERS)),)
@@ -59,26 +60,29 @@ gallium_DRIVERS +=  libmesa_winsys_nouveau libmesa_pipe_nouveau
 LOCAL_CFLAGS += -DGALLIUM_NOUVEAU
 LOCAL_SHARED_LIBRARIES += libdrm_nouveau
 endif
+
 ifneq ($(filter r%,$(MESA_GPU_DRIVERS)),)
 ifneq ($(filter r300g,$(MESA_GPU_DRIVERS)),)
 gallium_DRIVERS += libmesa_pipe_r300
 LOCAL_CFLAGS += -DGALLIUM_R300
 endif
 ifneq ($(filter r600g,$(MESA_GPU_DRIVERS)),)
-gallium_DRIVERS += libmesa_pipe_r600
+gallium_DRIVERS += libmesa_pipe_r600 libmesa_pipe_radeon
 LOCAL_CFLAGS += -DGALLIUM_R600
 endif
 ifneq ($(filter radeonsi,$(MESA_GPU_DRIVERS)),)
-gallium_DRIVERS += libmesa_pipe_radeonsi libmesa_winsys_amdgpu libmesa_amd_common
+gallium_DRIVERS += libmesa_pipe_radeonsi libmesa_winsys_amdgpu libmesa_amd_common libmesa_pipe_radeon
 LOCAL_SHARED_LIBRARIES += libLLVM libdrm_amdgpu
 LOCAL_CFLAGS += -DGALLIUM_RADEONSI
 endif
-gallium_DRIVERS += libmesa_winsys_radeon libmesa_pipe_radeon libmesa_amdgpu_addrlib
+gallium_DRIVERS += libmesa_winsys_radeon libmesa_amdgpu_addrlib
 LOCAL_SHARED_LIBRARIES += libdrm_radeon
 endif
+
 ifneq ($(filter swrast,$(MESA_GPU_DRIVERS)),)
-gallium_DRIVERS += libmesa_pipe_softpipe libmesa_winsys_sw_dri
-LOCAL_CFLAGS += -DGALLIUM_SOFTPIPE
+gallium_DRIVERS += libmesa_pipe_llvmpipe libmesa_pipe_softpipe libmesa_winsys_sw_dri
+LOCAL_CFLAGS += -DGALLIUM_LLVMPIPE -DGALLIUM_SOFTPIPE
+LOCAL_SHARED_LIBRARIES += libLLVM
 endif
 ifneq ($(filter vc4,$(MESA_GPU_DRIVERS)),)
 LOCAL_CFLAGS += -DGALLIUM_VC4
@@ -97,7 +101,7 @@ LOCAL_SHARED_LIBRARIES += $(if $(filter true,$(MESA_LOLLIPOP_BUILD)),libc++,libs
 endif
 
 LOCAL_WHOLE_STATIC_LIBRARIES := \
-	$(gallium_DRIVERS) \
+	$(sort $(gallium_DRIVERS)) \
 	libmesa_st_dri \
 	libmesa_st_mesa \
 	libmesa_glsl \
@@ -109,18 +113,6 @@ LOCAL_WHOLE_STATIC_LIBRARIES := \
 	libmesa_pipe_loader \
 	libmesa_util \
 	libmesa_loader
-
-LOCAL_STATIC_LIBRARIES :=
-
-ifeq ($(MESA_ENABLE_LLVM),true)
-LOCAL_STATIC_LIBRARIES += \
-	libLLVMR600CodeGen \
-	libLLVMR600Desc \
-	libLLVMR600Info \
-	libLLVMR600AsmPrinter \
-	libelf
-LOCAL_LDLIBS += $(if $(filter true,$(MESA_LOLLIPOP_BUILD)),-lgcc)
-endif
 
 include $(GALLIUM_COMMON_MK)
 include $(BUILD_SHARED_LIBRARY)

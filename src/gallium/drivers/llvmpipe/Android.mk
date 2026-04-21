@@ -1,6 +1,7 @@
-# Copyright 2012 Intel Corporation
-# Copyright (C) 2010-2011 Chia-I Wu <olvaffe@gmail.com>
-# Copyright (C) 2010-2011 LunarG Inc.
+# Mesa 3-D graphics library
+#
+# Copyright (C) 2015-2016 Zhen Wu <wuzhen@jidemail.com>
+# Copyright (C) 2015-2016 Jide Inc.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the "Software"),
@@ -20,31 +21,16 @@
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 # DEALINGS IN THE SOFTWARE.
 
-# ---------------------------------------------------------------------
-# host executable: mesa_gen_matypes
-# ---------------------------------------------------------------------
-
-ifeq ($(strip $(MESA_ENABLE_ASM)),true)
-ifneq ($(filter x86 x86_64,$(TARGET_ARCH)),)
-
 LOCAL_PATH := $(call my-dir)
+
+# get C_SOURCES
+include $(LOCAL_PATH)/Makefile.sources
 
 include $(CLEAR_VARS)
 
-LOCAL_MODULE := mesa_gen_matypes
-LOCAL_MULTILIB := both
-LOCAL_MODULE_STEM_32 := $(LOCAL_MODULE)32
-LOCAL_MODULE_STEM_64 := $(LOCAL_MODULE)64
-LOCAL_IS_HOST_MODULE := true
+LOCAL_SRC_FILES := $(C_SOURCES)
 
-LOCAL_C_INCLUDES := \
-	$(MESA_TOP)/src/mapi
+LOCAL_MODULE := libmesa_pipe_llvmpipe
 
-LOCAL_SRC_FILES := \
-	x86/gen_matypes.c
-
-include $(MESA_COMMON_MK)
-include $(BUILD_HOST_EXECUTABLE)
-
-endif # x86 x86_64
-endif # MESA_ENABLE_ASM
+include $(GALLIUM_COMMON_MK)
+include $(BUILD_STATIC_LIBRARY)

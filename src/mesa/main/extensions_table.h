@@ -25,6 +25,7 @@ EXT(ANGLE_texture_compression_dxt5          , ANGLE_texture_compression_dxt     
 
 EXT(APPLE_object_purgeable                  , APPLE_object_purgeable                 , GLL, GLC,  x ,  x , 2006)
 EXT(APPLE_packed_pixels                     , dummy_true                             , GLL,  x ,  x ,  x , 2002)
+EXT(APPLE_texture_2D_limited_npot           , ARB_texture_non_power_of_two           ,  x ,  x , ES1,  x , 2011)
 EXT(APPLE_texture_max_level                 , dummy_true                             ,  x ,  x , ES1, ES2, 2009)
 EXT(APPLE_vertex_array_object               , dummy_true                             , GLL,  x ,  x ,  x , 2002)
 
@@ -149,7 +150,7 @@ EXT(ARB_texture_gather                      , ARB_texture_gather                
 EXT(ARB_texture_mirror_clamp_to_edge        , ARB_texture_mirror_clamp_to_edge       , GLL, GLC,  x ,  x , 2013)
 EXT(ARB_texture_mirrored_repeat             , dummy_true                             , GLL,  x ,  x ,  x , 2001)
 EXT(ARB_texture_multisample                 , ARB_texture_multisample                , GLL, GLC,  x ,  x , 2009)
-EXT(ARB_texture_non_power_of_two            , ARB_texture_non_power_of_two           , GLL, GLC,  x ,  x , 2003)
+EXT(ARB_texture_non_power_of_two            , ARB_texture_non_power_of_two           , GLL, GLC, ES1,  x , 2003)
 EXT(ARB_texture_query_levels                , ARB_texture_query_levels               , GLL, GLC,  x ,  x , 2012)
 EXT(ARB_texture_query_lod                   , ARB_texture_query_lod                  , GLL, GLC,  x ,  x , 2009)
 EXT(ARB_texture_rectangle                   , NV_texture_rectangle                   , GLL, GLC,  x ,  x , 2004)
